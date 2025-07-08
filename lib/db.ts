@@ -1,13 +1,21 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
 
-const dbPath = path.join(process.cwd(), 'database.sqlite');
+// Use environment variable for database path, defaulting to a data directory
+const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'database.sqlite');
+
+// Ensure the directory exists
+import fs from 'fs';
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
 
 export const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('Error opening database:', err);
   } else {
-    console.log('Connected to SQLite database');
+    console.log('Connected to SQLite database at:', dbPath);
     initTables();
   }
 });

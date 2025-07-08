@@ -5,7 +5,7 @@ FROM node:18-alpine AS base
 # Install dependencies only when needed
 FROM base AS deps
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 
 # Install dependencies based on the preferred package manager
@@ -16,7 +16,6 @@ RUN \
   elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \
   else echo "Lockfile not found." && exit 1; \
   fi
-
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -47,6 +46,9 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
+# Create data directory for SQLite database with proper permissions
+RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
+
 COPY --from=builder /app/public ./public
 
 # Automatically leverage output traces to reduce image size
@@ -54,13 +56,19 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# Copy any additional files needed (like database initialization scripts)
+COPY --chown=nextjs:nodejs lib/ ./lib/
+
+# Copy startup script
+COPY --chown=nextjs:nodejs start.sh ./start.sh
+RUN chmod +x /app/start.sh
+
 USER nextjs
 
 EXPOSE 3000
 
 ENV PORT=3000
-
-# server.js is created by next build from the standalone output
-# https://nextjs.org/docs/pages/api-reference/config/next-config-js/output
 ENV HOSTNAME="0.0.0.0"
-CMD ["node", "server.js"]
+
+# Use the startup script
+CMD ["./start.sh"]

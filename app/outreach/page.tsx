@@ -216,21 +216,32 @@ const OutreachPage = () => {
           contact_names: company.contact_names,
           deal_urls: company.deal_urls,
           phone_numbers: company.phone_numbers,
-          emails: company.emails,
-          point_of_contact: contactMethodForm.point_of_contact,
-          preferred_contact_method: contactMethodForm.preferred_contact_method,
-          preferred_contact_value: contactMethodForm.preferred_contact_value
+          emails: company.emails
+          // Remove contact method fields for now - can be set later via edit
         })
       });
 
       const result = await response.json();
 
       if (response.ok) {
+        // Create the updated company object
+        const updatedCompany = { 
+          ...company, 
+          is_claimed: true, 
+          claimed_by_username: user?.username 
+        };
+        
         // Update the company in the local state to show it's claimed
         setCompanies(prev => prev.map(c => 
-          c.id === company.id ? { ...c, is_claimed: true, claimed_by_username: user?.username } : c
+          c.id === company.id ? updatedCompany : c
         ));
-        showToast('Company claimed successfully!');
+        
+        // IMPORTANT: Also update the selectedCompany if it's the same company
+        if (selectedCompany?.id === company.id) {
+          setSelectedCompany(updatedCompany);
+        }
+        
+        showToast('Company claimed successfully! You can set contact preferences in the Contact Method section.');
       } else {
         showToast(result.error || 'Failed to claim company', 'error');
       }
@@ -262,10 +273,23 @@ const OutreachPage = () => {
       const result = await response.json();
 
       if (response.ok) {
+        // Create the updated company object
+        const updatedCompany = { 
+          ...company, 
+          is_claimed: false, 
+          claimed_by_username: undefined 
+        };
+        
         // Update the company in the local state to show it's unclaimed
         setCompanies(prev => prev.map(c => 
-          c.id === company.id ? { ...c, is_claimed: false, claimed_by_username: undefined } : c
+          c.id === company.id ? updatedCompany : c
         ));
+        
+        // IMPORTANT: Also update the selectedCompany if it's the same company
+        if (selectedCompany?.id === company.id) {
+          setSelectedCompany(updatedCompany);
+        }
+        
         showToast('Company removed from your leads!');
       } else {
         showToast(result.error || 'Failed to remove company', 'error');
@@ -413,7 +437,7 @@ const OutreachPage = () => {
       {/* Header */}
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center space-x-4">
-          <Link href="/" className="text-muted-foreground hover:text-card-foreground">
+          <Link href="/dashboard" className="text-muted-foreground hover:text-card-foreground">
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <h1 className="text-lg font-semibold text-card-foreground">
@@ -519,72 +543,6 @@ const OutreachPage = () => {
                 </div>
                 
                 <div className="flex items-center space-x-3">
-                  {/* Contact Method Form */}
-                  {!selectedCompany.is_claimed && (
-                    <div className="bg-card border border-border rounded-lg p-4 min-w-80">
-                      <div className="flex items-center space-x-2 mb-3">
-                        <Contact className="w-4 h-4 text-primary" />
-                        <span className="text-sm font-medium text-card-foreground">Point of Contact</span>
-                      </div>
-                      
-                      <div className="space-y-3">
-                        {/* Contact Person */}
-                        <div>
-                          <label className="block text-xs font-medium text-muted-foreground mb-1">
-                            Contact Person
-                          </label>
-                          <select
-                            value={contactMethodForm.point_of_contact}
-                            onChange={(e) => setContactMethodForm(prev => ({ ...prev, point_of_contact: e.target.value }))}
-                            className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                          >
-                            <option value="">Select contact person</option>
-                            {selectedCompany.contact_names.map((name, index) => (
-                              <option key={index} value={name}>{name}</option>
-                            ))}
-                            <option value="General">General Contact</option>
-                          </select>
-                        </div>
-                        
-                        {/* Contact Method */}
-                        <div>
-                          <label className="block text-xs font-medium text-muted-foreground mb-1">
-                            Preferred Contact Method
-                          </label>
-                          <select
-                            value={contactMethodForm.preferred_contact_method}
-                            onChange={(e) => handleContactMethodChange(e.target.value as 'call' | 'email' | 'text' | '')}
-                            className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                          >
-                            <option value="">Select method</option>
-                            <option value="call">Call</option>
-                            <option value="email">Email</option>
-                            <option value="text">Text</option>
-                          </select>
-                        </div>
-                        
-                        {/* Contact Value */}
-                        {contactMethodForm.preferred_contact_method && (
-                          <div>
-                            <label className="block text-xs font-medium text-muted-foreground mb-1">
-                              {contactMethodForm.preferred_contact_method === 'email' ? 'Email Address' : 'Phone Number'}
-                            </label>
-                            <select
-                              value={contactMethodForm.preferred_contact_value}
-                              onChange={(e) => setContactMethodForm(prev => ({ ...prev, preferred_contact_value: e.target.value }))}
-                              className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                            >
-                              <option value="">Select {contactMethodForm.preferred_contact_method === 'email' ? 'email' : 'phone'}</option>
-                              {getFilteredContactValues().map((value, index) => (
-                                <option key={index} value={value}>{value}</option>
-                              ))}
-                            </select>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
                   {/* Claim/Unclaim Button */}
                   {!selectedCompany.is_claimed || selectedCompany.claimed_by_username === user?.username ? (
                     selectedCompany.is_claimed ? (
@@ -612,9 +570,9 @@ const OutreachPage = () => {
                     ) : (
                       <button
                         onClick={() => claimCompany(selectedCompany)}
-                        disabled={claimingCompany === selectedCompany.id || !contactMethodForm.point_of_contact || !contactMethodForm.preferred_contact_method || !contactMethodForm.preferred_contact_value}
+                        disabled={claimingCompany === selectedCompany.id}
                         className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium rounded-md border transition-colors ${
-                          claimingCompany === selectedCompany.id || !contactMethodForm.point_of_contact || !contactMethodForm.preferred_contact_method || !contactMethodForm.preferred_contact_value
+                          claimingCompany === selectedCompany.id
                             ? 'bg-muted text-muted-foreground border-border cursor-not-allowed'
                             : 'bg-primary text-primary-foreground border-primary hover:bg-primary/90'
                         }`}

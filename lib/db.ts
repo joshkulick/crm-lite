@@ -33,6 +33,9 @@ function initTables() {
       account_type TEXT,
       phone_numbers TEXT,
       emails TEXT,
+      point_of_contact TEXT,
+      preferred_contact_method TEXT CHECK (preferred_contact_method IN ('call', 'email', 'text')),
+      preferred_contact_value TEXT,
       status TEXT DEFAULT 'new',
       scrape_timestamp DATETIME,
       user_id INTEGER,
@@ -40,6 +43,25 @@ function initTables() {
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
+
+  // Add columns to existing leads table if they don't exist
+  db.run(`
+    ALTER TABLE leads ADD COLUMN point_of_contact TEXT
+  `, (err) => {
+    // Ignore error if column already exists
+  });
+
+  db.run(`
+    ALTER TABLE leads ADD COLUMN preferred_contact_method TEXT CHECK (preferred_contact_method IN ('call', 'email', 'text'))
+  `, (err) => {
+    // Ignore error if column already exists
+  });
+
+  db.run(`
+    ALTER TABLE leads ADD COLUMN preferred_contact_value TEXT
+  `, (err) => {
+    // Ignore error if column already exists
+  });
 
   // ====== INVESTOR LIFT SCRAPE PLUGIN TABLES ======
   

@@ -26,6 +26,9 @@ interface ClaimCompanyRequest {
   deal_urls: string[];
   phone_numbers: PhoneNumber[];
   emails: Email[];
+  point_of_contact?: string;
+  preferred_contact_method?: 'call' | 'email' | 'text';
+  preferred_contact_value?: string;
 }
 
 interface ExistingLead {
@@ -54,6 +57,21 @@ export async function POST(request: NextRequest) {
     if (!claimData.company_id || !claimData.company_name) {
       return NextResponse.json(
         { error: 'Company ID and name are required' },
+        { status: 400 }
+      );
+    }
+
+    // Validate contact method fields if provided
+    if (claimData.preferred_contact_method && !claimData.preferred_contact_value) {
+      return NextResponse.json(
+        { error: 'Contact value is required when contact method is specified' },
+        { status: 400 }
+      );
+    }
+
+    if (claimData.preferred_contact_method && !['call', 'email', 'text'].includes(claimData.preferred_contact_method)) {
+      return NextResponse.json(
+        { error: 'Invalid contact method. Must be call, email, or text' },
         { status: 400 }
       );
     }
@@ -94,7 +112,7 @@ export async function POST(request: NextRequest) {
             const phoneNumbersJson = JSON.stringify(claimData.phone_numbers);
             const emailsJson = JSON.stringify(claimData.emails);
 
-            // Insert into leads table
+            // Insert into leads table with new contact method fields
             const insertQuery = `
               INSERT INTO leads (
                 deal_id,
@@ -103,10 +121,13 @@ export async function POST(request: NextRequest) {
                 account_type,
                 phone_numbers,
                 emails,
+                point_of_contact,
+                preferred_contact_method,
+                preferred_contact_value,
                 status,
                 user_id,
                 scrape_timestamp
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `;
 
             db.run(
@@ -118,6 +139,9 @@ export async function POST(request: NextRequest) {
                 'investor_lift_claimed',
                 phoneNumbersJson,
                 emailsJson,
+                claimData.point_of_contact || null,
+                claimData.preferred_contact_method || null,
+                claimData.preferred_contact_value || null,
                 'claimed',
                 decoded.userId,
                 new Date().toISOString()
@@ -136,17 +160,24 @@ export async function POST(request: NextRequest) {
                 db.run(
                   'UPDATE investor_lift_companies SET user_id = ? WHERE id = ?',
                   [decoded.userId, claimData.company_id],
-                  (updateErr: Error | null) => {
+                  function(updateErr: Error | null) {
                     if (updateErr) {
                       console.error('Error updating investor_lift_companies:', updateErr);
-                      // This is not critical, so we don't fail the request
+                      // Still resolve successfully since the lead was created
                     }
 
-                    resolve(NextResponse.json({
-                      message: 'Company claimed successfully',
-                      lead_id: this.lastID,
-                      company_name: claimData.company_name
-                    }));
+                    resolve(NextResponse.json(
+                      { 
+                        message: 'Company claimed successfully',
+                        lead_id: this.lastID,
+                        contact_info: {
+                          point_of_contact: claimData.point_of_contact,
+                          preferred_contact_method: claimData.preferred_contact_method,
+                          preferred_contact_value: claimData.preferred_contact_value
+                        }
+                      },
+                      { status: 201 }
+                    ));
                   }
                 );
               }

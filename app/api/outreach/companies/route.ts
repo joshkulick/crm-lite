@@ -19,6 +19,7 @@ interface CompanyRow {
   created_at: string;
   user_id: number | null;
   claimed_by_username: string | null;
+  notes: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -54,14 +55,16 @@ export async function GET(request: NextRequest) {
           ilc.emails,
           ilc.created_at,
           ilc.user_id,
-          u.username as claimed_by_username
+          u.username as claimed_by_username,
+          l.notes as notes
         FROM investor_lift_companies ilc
         LEFT JOIN users u ON ilc.user_id = u.id
+        LEFT JOIN leads l ON l.deal_id = ilc.id AND l.user_id = ?
         ORDER BY ilc.created_at DESC
         LIMIT ? OFFSET ?
       `;
 
-      db.all(query, [limit + 1, offset], (err: Error | null, rows: CompanyRow[]) => {
+      db.all(query, [decoded.userId, limit + 1, offset], (err: Error | null, rows: CompanyRow[]) => {
         if (err) {
           console.error('Database error:', err);
           resolve(NextResponse.json(
@@ -116,6 +119,7 @@ export async function GET(request: NextRequest) {
             created_at: row.created_at,
             is_claimed: row.user_id !== null,
             claimed_by_username: row.claimed_by_username,
+            notes: row.notes,
             // Add a unique compound key for React
             unique_key: `${row.id}-${page}-${index}`
           };

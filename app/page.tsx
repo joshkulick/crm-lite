@@ -91,7 +91,7 @@ const CRMDashboard = () => {
                   My Customers
                 </h3>
                 <p className="text-sm text-muted-foreground mt-2 group-hover:text-accent-foreground/80 transition-colors">
-                  Active clients
+                  View your leads
                 </p>
               </div>
             </Link>

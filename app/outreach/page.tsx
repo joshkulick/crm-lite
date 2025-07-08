@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { ArrowLeft, Copy, Phone, Mail, Users, ExternalLink, Check, ChevronDown, ChevronUp, Link as LinkIcon, UserPlus, CheckCircle, Building2, MessageSquare, Contact } from 'lucide-react';
+import { ArrowLeft, Copy, Phone, Mail, Users, ExternalLink, Check, ChevronDown, ChevronUp, Link as LinkIcon, UserPlus, CheckCircle, Building2, MessageSquare, Contact, FileText } from 'lucide-react';
 
 interface PhoneNumber {
   number: string;
@@ -27,12 +27,14 @@ interface Company {
   unique_key?: string;
   is_claimed?: boolean;
   claimed_by_username?: string;
+  notes?: string;
 }
 
 interface ContactMethodForm {
   point_of_contact: string;
   preferred_contact_method: 'call' | 'email' | 'text' | '';
   preferred_contact_value: string;
+  custom_contact_value?: string;
 }
 
 interface Lead {
@@ -65,10 +67,16 @@ const OutreachPage = () => {
   const [contactMethodForm, setContactMethodForm] = useState<ContactMethodForm>({
     point_of_contact: '',
     preferred_contact_method: '',
-    preferred_contact_value: ''
+    preferred_contact_value: '',
+    custom_contact_value: ''
   });
   const [editingContactMethod, setEditingContactMethod] = useState(false);
   const [savingContactMethod, setSavingContactMethod] = useState(false);
+  
+  // Notes state
+  const [companyNotes, setCompanyNotes] = useState<string>('');
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [savingNotes, setSavingNotes] = useState(false);
   
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -100,7 +108,8 @@ const OutreachPage = () => {
           setContactMethodForm({
             point_of_contact: lead.point_of_contact || '',
             preferred_contact_method: lead.preferred_contact_method || '',
-            preferred_contact_value: lead.preferred_contact_value || ''
+            preferred_contact_value: lead.preferred_contact_value || '',
+            custom_contact_value: ''
           });
         }
       }
@@ -109,13 +118,71 @@ const OutreachPage = () => {
     }
   }, [selectedCompany?.company_name, selectedCompany?.is_claimed, selectedCompany?.claimed_by_username, user?.username]);
 
+  // Load company notes
+  const loadCompanyNotes = useCallback(async () => {
+    if (!selectedCompany) return;
+
+    try {
+      const response = await fetch(`/api/outreach/company-notes?company_id=${selectedCompany.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        setCompanyNotes(data.notes || '');
+      }
+    } catch (error) {
+      console.error('Failed to load company notes:', error);
+    }
+  }, [selectedCompany?.id]);
+
+  // Save company notes
+  const saveCompanyNotes = async () => {
+    if (!selectedCompany) return;
+
+    setSavingNotes(true);
+    
+    try {
+      const response = await fetch('/api/outreach/company-notes', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company_id: selectedCompany.id,
+          notes: companyNotes
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        showToast('Notes saved successfully!');
+        setEditingNotes(false);
+        
+        // Update the company in local state if needed
+        setCompanies(prev => prev.map(c => 
+          c.id === selectedCompany.id ? { ...c, notes: companyNotes } : c
+        ));
+        
+        // Update selectedCompany as well
+        setSelectedCompany(prev => prev ? { ...prev, notes: companyNotes } : null);
+      } else {
+        showToast(result.error || 'Failed to save notes', 'error');
+      }
+    } catch (error) {
+      console.error('Failed to save notes:', error);
+      showToast('Failed to save notes', 'error');
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
   // Reset contact method form when company changes  
   useEffect(() => {
     if (selectedCompany) {
       setContactMethodForm({
         point_of_contact: '',
         preferred_contact_method: '',
-        preferred_contact_value: ''
+        preferred_contact_value: '',
+        custom_contact_value: ''
       });
       setEditingContactMethod(false);
       
@@ -125,6 +192,15 @@ const OutreachPage = () => {
       }
     }
   }, [selectedCompany?.id, user?.username]); // Only depend on ID, not the whole object
+
+  // Load notes when company changes
+  useEffect(() => {
+    if (selectedCompany) {
+      setCompanyNotes('');
+      setEditingNotes(false);
+      loadCompanyNotes();
+    }
+  }, [selectedCompany?.id, loadCompanyNotes]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -374,6 +450,7 @@ const OutreachPage = () => {
         },
         body: JSON.stringify({
           lead_id: lead.id,
+          contact_name: contactMethodForm.point_of_contact,
           point_of_contact: contactMethodForm.point_of_contact,
           preferred_contact_method: contactMethodForm.preferred_contact_method,
           preferred_contact_value: contactMethodForm.preferred_contact_value
@@ -437,7 +514,7 @@ const OutreachPage = () => {
       {/* Header */}
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center space-x-4">
-          <Link href="/dashboard" className="text-muted-foreground hover:text-card-foreground">
+          <Link href="/" className="text-muted-foreground hover:text-card-foreground">
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <h1 className="text-lg font-semibold text-card-foreground">
@@ -664,17 +741,13 @@ const OutreachPage = () => {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-xs font-medium text-muted-foreground mb-1">Contact Person</label>
-                            <select
+                            <input
+                              type="text"
                               value={contactMethodForm.point_of_contact}
                               onChange={(e) => setContactMethodForm(prev => ({ ...prev, point_of_contact: e.target.value }))}
+                              placeholder="Enter contact person name"
                               className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                            >
-                              <option value="">Select contact person</option>
-                              {selectedCompany.contact_names.map((name, index) => (
-                                <option key={index} value={name}>{name}</option>
-                              ))}
-                              <option value="General">General Contact</option>
-                            </select>
+                            />
                           </div>
                           
                           <div>
@@ -695,16 +768,45 @@ const OutreachPage = () => {
                             <label className="block text-xs font-medium text-muted-foreground mb-1">
                               {contactMethodForm.preferred_contact_method === 'email' ? 'Email Address' : 'Phone Number'}
                             </label>
-                            <select
-                              value={contactMethodForm.preferred_contact_value}
-                              onChange={(e) => setContactMethodForm(prev => ({ ...prev, preferred_contact_value: e.target.value }))}
-                              className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                            >
-                              <option value="">Select {contactMethodForm.preferred_contact_method === 'email' ? 'email' : 'phone'}</option>
-                              {getFilteredContactValues().map((value, index) => (
-                                <option key={index} value={value}>{value}</option>
-                              ))}
-                            </select>
+                            {contactMethodForm.preferred_contact_value === 'custom' ? (
+                              <input
+                                type={contactMethodForm.preferred_contact_method === 'email' ? 'email' : 'tel'}
+                                value={contactMethodForm.custom_contact_value || ''}
+                                onChange={(e) => setContactMethodForm(prev => ({ 
+                                  ...prev, 
+                                  custom_contact_value: e.target.value,
+                                  preferred_contact_value: e.target.value 
+                                }))}
+                                placeholder={`Enter ${contactMethodForm.preferred_contact_method === 'email' ? 'email address' : 'phone number'}`}
+                                className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                              />
+                            ) : (
+                              <select
+                                value={contactMethodForm.preferred_contact_value}
+                                onChange={(e) => {
+                                  if (e.target.value === 'custom') {
+                                    setContactMethodForm(prev => ({ 
+                                      ...prev, 
+                                      preferred_contact_value: 'custom',
+                                      custom_contact_value: ''
+                                    }));
+                                  } else {
+                                    setContactMethodForm(prev => ({ 
+                                      ...prev, 
+                                      preferred_contact_value: e.target.value,
+                                      custom_contact_value: ''
+                                    }));
+                                  }
+                                }}
+                                className="w-full px-3 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                              >
+                                <option value="">Select {contactMethodForm.preferred_contact_method === 'email' ? 'email' : 'phone'}</option>
+                                {getFilteredContactValues().map((value, index) => (
+                                  <option key={index} value={value}>{value}</option>
+                                ))}
+                                <option value="custom">+ Add New {contactMethodForm.preferred_contact_method === 'email' ? 'Email' : 'Phone Number'}</option>
+                              </select>
+                            )}
                           </div>
                         </div>
                         
@@ -730,6 +832,95 @@ const OutreachPage = () => {
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Company Notes Section - Only for claimed companies */}
+                {selectedCompany.is_claimed && selectedCompany.claimed_by_username === user?.username && (
+                  <div className="lg:col-span-2 bg-card border border-border rounded-lg p-6 mb-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center space-x-2">
+                        <FileText className="w-5 h-5 text-primary" />
+                        <h2 className="text-lg font-semibold text-card-foreground">Company Notes</h2>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (editingNotes) {
+                            setEditingNotes(false);
+                            loadCompanyNotes(); // Reset to original notes
+                          } else {
+                            setEditingNotes(true);
+                          }
+                        }}
+                        className="flex items-center space-x-2 px-3 py-1.5 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+                      >
+                        <span>{editingNotes ? 'Cancel' : 'Edit'}</span>
+                      </button>
+                    </div>
+
+                    {!editingNotes ? (
+                      <div className="min-h-[100px] p-3 bg-accent/30 border border-border rounded-md">
+                        {companyNotes ? (
+                          <p className="text-sm text-card-foreground whitespace-pre-wrap">{companyNotes}</p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">No notes added yet. Click Edit to add notes about this company.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        <textarea
+                          value={companyNotes}
+                          onChange={(e) => setCompanyNotes(e.target.value)}
+                          placeholder="Add notes about this company, contact details, conversation history, or any other relevant information..."
+                          className="w-full min-h-[150px] px-3 py-2 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent resize-vertical"
+                        />
+                        
+                        <div className="flex justify-end space-x-2">
+                          <button
+                            onClick={() => {
+                              setEditingNotes(false);
+                              loadCompanyNotes();
+                            }}
+                            className="px-4 py-2 text-sm font-medium rounded-md border border-border hover:bg-accent transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={saveCompanyNotes}
+                            disabled={savingNotes}
+                            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                              savingNotes
+                                ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                            }`}
+                          >
+                            {savingNotes ? (
+                              <div className="flex items-center space-x-2">
+                                <div className="animate-spin rounded-full h-3 w-3 border-2 border-current border-t-transparent"></div>
+                                <span>Saving...</span>
+                              </div>
+                            ) : (
+                              'Save Notes'
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Unclaimed Company Message */}
+                {!selectedCompany.is_claimed && (
+                  <div className="lg:col-span-2 bg-card border border-border rounded-lg p-6 mb-6">
+                    <div className="flex items-center space-x-2 mb-4">
+                      <FileText className="w-5 h-5 text-muted-foreground" />
+                      <h2 className="text-lg font-semibold text-card-foreground">Company Notes</h2>
+                    </div>
+                    <div className="min-h-[100px] p-3 bg-accent/30 border border-border rounded-md">
+                      <p className="text-sm text-muted-foreground italic">
+                        Notes are available after claiming this company. Click the &quot;Claim Company&quot; button above to get started.
+                      </p>
+                    </div>
                   </div>
                 )}
 

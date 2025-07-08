@@ -12,6 +12,7 @@ interface JWTPayload {
 
 interface UpdateContactMethodRequest {
   lead_id: number;
+  contact_name?: string;
   point_of_contact?: string;
   preferred_contact_method?: 'call' | 'email' | 'text';
   preferred_contact_value?: string;
@@ -27,7 +28,10 @@ interface LeadContactInfo {
   phone_numbers: string;
   emails: string;
   status: string;
+  next_follow_up: string | null;
+  pipeline: string;
   created_at: string;
+  notes: string | null;
 }
 
 // GET - Retrieve contact method information for user's leads
@@ -54,7 +58,7 @@ export async function GET(request: NextRequest) {
         // Get specific lead contact info
         db.get(
           `SELECT id, company, contact_name, point_of_contact, preferred_contact_method, 
-           preferred_contact_value, phone_numbers, emails, status, created_at
+           preferred_contact_value, phone_numbers, emails, status, next_follow_up, pipeline, created_at, notes
            FROM leads 
            WHERE id = ? AND user_id = ?`,
           [leadId, decoded.userId],
@@ -105,7 +109,7 @@ export async function GET(request: NextRequest) {
         // Get all leads with contact info for the user
         db.all(
           `SELECT id, company, contact_name, point_of_contact, preferred_contact_method, 
-           preferred_contact_value, phone_numbers, emails, status, created_at
+           preferred_contact_value, phone_numbers, emails, status, next_follow_up, pipeline, created_at, notes
            FROM leads 
            WHERE user_id = ? 
            ORDER BY created_at DESC`,
@@ -219,11 +223,13 @@ export async function PUT(request: NextRequest) {
           // Update the contact method information
           db.run(
             `UPDATE leads 
-             SET point_of_contact = ?, 
+             SET contact_name = ?, 
+                 point_of_contact = ?, 
                  preferred_contact_method = ?, 
                  preferred_contact_value = ?
              WHERE id = ? AND user_id = ?`,
             [
+              updateData.contact_name || null,
               updateData.point_of_contact || null,
               updateData.preferred_contact_method || null,
               updateData.preferred_contact_value || null,
@@ -251,6 +257,7 @@ export async function PUT(request: NextRequest) {
               resolve(NextResponse.json({
                 message: 'Contact method updated successfully',
                 updated_fields: {
+                  contact_name: updateData.contact_name,
                   point_of_contact: updateData.point_of_contact,
                   preferred_contact_method: updateData.preferred_contact_method,
                   preferred_contact_value: updateData.preferred_contact_value

@@ -23,7 +23,7 @@ function initTables() {
     )
   `);
 
-  // Create original leads table for basic CRM data
+  // Create leads table for basic CRM data
   db.run(`
     CREATE TABLE IF NOT EXISTS leads (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +36,10 @@ function initTables() {
       point_of_contact TEXT,
       preferred_contact_method TEXT CHECK (preferred_contact_method IN ('call', 'email', 'text')),
       preferred_contact_value TEXT,
+      notes TEXT,  -- ✅ Unified notes column
       status TEXT DEFAULT 'new',
+      next_follow_up DATETIME,
+      pipeline TEXT DEFAULT 'Not Outreached' CHECK (pipeline IN ('Not Outreached', 'Outreached', 'Sent Info', 'Demo', 'Trial', 'Customer', 'Not Interested')),
       scrape_timestamp DATETIME,
       user_id INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -44,23 +47,17 @@ function initTables() {
     )
   `);
 
-  // Add columns to existing leads table if they don't exist
-  db.run(`
-    ALTER TABLE leads ADD COLUMN point_of_contact TEXT
-  `, (err) => {
-    // Ignore error if column already exists
+  // Add new columns to existing leads table if they don't exist
+  db.run(`ALTER TABLE leads ADD COLUMN next_follow_up DATETIME`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.log('Note: next_follow_up column already exists or could not be added');
+    }
   });
 
-  db.run(`
-    ALTER TABLE leads ADD COLUMN preferred_contact_method TEXT CHECK (preferred_contact_method IN ('call', 'email', 'text'))
-  `, (err) => {
-    // Ignore error if column already exists
-  });
-
-  db.run(`
-    ALTER TABLE leads ADD COLUMN preferred_contact_value TEXT
-  `, (err) => {
-    // Ignore error if column already exists
+  db.run(`ALTER TABLE leads ADD COLUMN pipeline TEXT DEFAULT 'Not Outreached'`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.log('Note: pipeline column already exists or could not be added');
+    }
   });
 
   // ====== INVESTOR LIFT SCRAPE PLUGIN TABLES ======

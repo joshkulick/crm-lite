@@ -33,6 +33,7 @@ const AdminPage = () => {
   });
   const [loadingStats, setLoadingStats] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [clearingOwnership, setClearingOwnership] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -84,6 +85,42 @@ const AdminPage = () => {
       fetchImportStats();
     }
   }, [user]);
+
+  const handleClearOwnership = async () => {
+    if (!confirm('Are you sure you want to clear ALL ownership data? This will make all companies unclaimed again.')) {
+      return;
+    }
+
+    setClearingOwnership(true);
+    
+    try {
+      const response = await fetch('/api/admin/clear-ownership', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        alert(`Successfully cleared ownership for ${result.cleared_count} companies!`);
+        // Refresh the stats
+        const statsResponse = await fetch('/api/admin/import-stats');
+        if (statsResponse.ok) {
+          const newStats = await statsResponse.json();
+          setImportStats(newStats);
+        }
+      } else {
+        alert(`Failed to clear ownership: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error clearing ownership:', error);
+      alert('Error clearing ownership. Please try again.');
+    } finally {
+      setClearingOwnership(false);
+    }
+  };
 
   const handleUploadLeads = async (file?: File) => {
     if (!file) {
@@ -284,6 +321,67 @@ const AdminPage = () => {
             </div>
           </div>
         </div>
+
+        {/* Ownership Management Section */}
+        <div className="bg-card border border-border rounded-lg">
+          <div className="px-6 py-4 border-b border-border">
+            <h2 className="text-lg font-semibold text-card-foreground">
+              Ownership Management
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Manage lead ownership and claims
+            </p>
+          </div>
+          
+          <div className="p-6">
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0">
+                  <svg className="w-5 h-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-yellow-800">
+                    Warning: Destructive Action
+                  </h3>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    This will remove ALL ownership claims from ALL companies, making them available for claiming again.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleClearOwnership}
+              disabled={clearingOwnership}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                clearingOwnership 
+                  ? 'bg-gray-400 text-white cursor-not-allowed' 
+                  : 'bg-red-600 text-white hover:bg-red-700'
+              }`}
+            >
+              {clearingOwnership ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  <span>Clearing Ownership...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  <span>Clear ALL Ownership</span>
+                </>
+              )}
+            </button>
+            
+            <p className="text-xs text-muted-foreground mt-2">
+              This action cannot be undone. All users will lose their claimed leads.
+            </p>
+          </div>
+        </div>
+
         {/* Users Table */}
         <div className="bg-card border border-border rounded-lg">
           <div className="px-6 py-4 border-b border-border">
@@ -358,24 +456,6 @@ const AdminPage = () => {
 
         {/* Summary Stats */}
         <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-card border border-border rounded-lg p-4">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-card-foreground">
-                {users.length}
-              </p>
-              <p className="text-sm text-muted-foreground">Total Users</p>
-            </div>
-          </div>
-          
-          <div className="bg-card border border-border rounded-lg p-4">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-card-foreground">
-                {users.reduce((sum, u) => sum + u.lead_count, 0)}
-              </p>
-              <p className="text-sm text-muted-foreground">Total Leads</p>
-            </div>
-          </div>
-          
           <div className="bg-card border border-border rounded-lg p-4">
             <div className="text-center">
               <p className="text-2xl font-bold text-card-foreground">

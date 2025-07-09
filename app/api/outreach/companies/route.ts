@@ -37,13 +37,122 @@ export async function GET(request: NextRequest) {
     // Verify the JWT token
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
 
-    // Get pagination parameters
+    // Get pagination, search, and filter parameters
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
+    const search = searchParams.get('search') || '';
+    const phoneOnly = searchParams.get('phoneOnly') === 'true';
+    const myClaims = searchParams.get('myClaims') === 'true';
+    const unclaimed = searchParams.get('unclaimed') === 'true';
+    const hasPhone = searchParams.get('hasPhone') === 'true';
+    const hasEmail = searchParams.get('hasEmail') === 'true';
+    const hasDeals = searchParams.get('hasDeals') === 'true';
     const offset = (page - 1) * limit;
 
-    // Query to get companies with pagination
+    // Build search and filter conditions
+    let queryParams: (string | number)[] = [decoded.userId];
+    let whereConditions: string[] = [];
+    let paramIdx = 2;
+
+    // Search condition
+    if (search.trim()) {
+      const searchTerm = `%${search.toLowerCase()}%`;
+      const normalizedSearchTerm = search.replace(/[^0-9]/g, ''); // Remove non-digits for phone search
+      
+      if (phoneOnly && normalizedSearchTerm.length >= 3) {
+        // Phone-only search: only search phone numbers with intelligent prefix matching
+        whereConditions.push(`
+          EXISTS (
+            SELECT 1 FROM jsonb_array_elements(ilc.phone_numbers::jsonb) AS phone
+            WHERE phone->>'number' = $${paramIdx} OR
+                  REPLACE(phone->>'number', '-', '') = $${paramIdx + 1} OR
+                  REPLACE(phone->>'number', '-', '') LIKE $${paramIdx + 2}
+          )
+        `);
+        queryParams.push(search.trim(), normalizedSearchTerm, `${normalizedSearchTerm}%`);
+        paramIdx += 3;
+      } else {
+        // Regular search: search all fields EXCEPT phone numbers when search looks like a phone pattern
+        // This prevents false positives from phone numbers when searching for other content
+        const isPhonePattern = /^\d{3,}$/.test(normalizedSearchTerm);
+        
+        if (isPhonePattern && normalizedSearchTerm.length >= 3) {
+          // If search looks like a phone number, exclude phone search from regular search
+          // This forces users to use the phone-only search button for phone number searches
+          whereConditions.push(`
+            (LOWER(ilc.company_name) LIKE $${paramIdx} OR
+             LOWER(ilc.contact_names) LIKE $${paramIdx} OR
+             LOWER(ilc.emails) LIKE $${paramIdx})
+          `);
+          queryParams.push(searchTerm);
+          paramIdx += 1;
+        } else {
+          // For non-phone patterns, search all fields including phone numbers
+          let phoneSearchConditions = [];
+          
+          if (normalizedSearchTerm.length >= 3) {
+            // Exact match for formatted phone number (e.g., "623-288-5625")
+            phoneSearchConditions.push(`phone->>'number' = $${paramIdx + 1}`);
+            // Exact match for normalized phone number (e.g., "6232885625")
+            phoneSearchConditions.push(`REPLACE(phone->>'number', '-', '') = $${paramIdx + 2}`);
+            
+            // Intelligent partial matching: search for numbers that START with the pattern
+            // This ensures we only match area codes and prefixes, not random digits in the middle
+            phoneSearchConditions.push(`REPLACE(phone->>'number', '-', '') LIKE $${paramIdx + 3}`);
+          }
+          
+          const phoneSearchClause = phoneSearchConditions.length > 0 
+            ? `OR EXISTS (SELECT 1 FROM jsonb_array_elements(ilc.phone_numbers::jsonb) AS phone WHERE ${phoneSearchConditions.join(' OR ')})`
+            : '';
+          
+          whereConditions.push(`
+            (LOWER(ilc.company_name) LIKE $${paramIdx} OR
+             LOWER(ilc.contact_names) LIKE $${paramIdx} OR
+             LOWER(ilc.emails) LIKE $${paramIdx} ${phoneSearchClause})
+          `);
+          
+          // Add parameters for phone search
+          queryParams.push(searchTerm);
+          if (normalizedSearchTerm.length >= 3) {
+            queryParams.push(search.trim(), normalizedSearchTerm, `${normalizedSearchTerm}%`);
+            paramIdx += 4;
+          } else {
+            paramIdx += 1;
+          }
+        }
+      }
+    }
+
+    // Filter conditions
+    if (myClaims) {
+      whereConditions.push(`ilc.user_id = $${paramIdx}`);
+      queryParams.push(decoded.userId);
+      paramIdx++;
+    }
+
+    if (unclaimed) {
+      whereConditions.push(`ilc.user_id IS NULL`);
+    }
+
+    if (hasPhone) {
+      whereConditions.push(`ilc.phone_numbers != '[]' AND ilc.phone_numbers != 'null' AND ilc.phone_numbers != ''`);
+    }
+
+    if (hasEmail) {
+      whereConditions.push(`ilc.emails != '[]' AND ilc.emails != 'null' AND ilc.emails != ''`);
+    }
+
+    if (hasDeals) {
+      whereConditions.push(`ilc.deal_urls != '[]' AND ilc.deal_urls != 'null' AND ilc.deal_urls != ''`);
+    }
+
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+    const limitParam = `$${paramIdx}`;
+    const offsetParam = `$${paramIdx + 1}`;
+    queryParams.push(limit + 1, offset);
+
     const query = `
       SELECT 
         ilc.id,
@@ -59,11 +168,12 @@ export async function GET(request: NextRequest) {
       FROM investor_lift_companies ilc
       LEFT JOIN users u ON ilc.user_id = u.id
       LEFT JOIN leads l ON l.deal_id = ilc.id AND l.user_id = $1
+      ${whereClause}
       ORDER BY ilc.created_at DESC
-      LIMIT $2 OFFSET $3
+      LIMIT ${limitParam} OFFSET ${offsetParam}
     `;
 
-    const rows = await db.all(query, [decoded.userId, limit + 1, offset]) as CompanyRow[];
+    const rows = await db.all(query, queryParams) as CompanyRow[];
 
     // Check if there are more results
     const hasMore = rows.length > limit;

@@ -40,32 +40,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    return new Promise<NextResponse>((resolve) => {
-      db.get(
-        'SELECT notes FROM leads WHERE id = ? AND user_id = ?',
-        [leadId, decoded.userId],
-        (err: Error | null, row: { notes: string } | undefined) => {
-          if (err) {
-            console.error('Database error:', err);
-            resolve(NextResponse.json(
-              { error: 'Database error' },
-              { status: 500 }
-            ));
-            return;
-          }
+    const row = await db.get(
+      'SELECT notes FROM leads WHERE id = $1 AND user_id = $2',
+      [leadId, decoded.userId]
+    ) as { notes: string } | undefined;
 
-          if (!row) {
-            resolve(NextResponse.json(
-              { error: 'Lead not found' },
-              { status: 404 }
-            ));
-            return;
-          }
-
-          resolve(NextResponse.json({ notes: row.notes || '' }));
-        }
+    if (!row) {
+      return NextResponse.json(
+        { error: 'Lead not found' },
+        { status: 404 }
       );
-    });
+    }
+
+    return NextResponse.json({ notes: row.notes || '' });
+
   } catch (error) {
     console.error('Get notes API error:', error);
     return NextResponse.json(
@@ -102,52 +90,30 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    return new Promise<NextResponse>((resolve) => {
-      // First verify the lead belongs to the user
-      db.get(
-        'SELECT id FROM leads WHERE id = ? AND user_id = ?',
-        [updateData.lead_id, decoded.userId],
-        (err: Error | null, row: { id: number } | undefined) => {
-          if (err) {
-            console.error('Database error:', err);
-            resolve(NextResponse.json(
-              { error: 'Database error' },
-              { status: 500 }
-            ));
-            return;
-          }
+    // First verify the lead belongs to the user
+    const existingLead = await db.get(
+      'SELECT id FROM leads WHERE id = $1 AND user_id = $2',
+      [updateData.lead_id, decoded.userId]
+    ) as { id: number } | undefined;
 
-          if (!row) {
-            resolve(NextResponse.json(
-              { error: 'Lead not found or access denied' },
-              { status: 404 }
-            ));
-            return;
-          }
-
-          // Update the notes
-          db.run(
-            'UPDATE leads SET notes = ? WHERE id = ? AND user_id = ?',
-            [updateData.notes, updateData.lead_id, decoded.userId],
-            function(err: Error | null) {
-              if (err) {
-                console.error('Database error:', err);
-                resolve(NextResponse.json(
-                  { error: 'Database error' },
-                  { status: 500 }
-                ));
-                return;
-              }
-
-              resolve(NextResponse.json({ 
-                success: true, 
-                message: 'Notes updated successfully' 
-              }));
-            }
-          );
-        }
+    if (!existingLead) {
+      return NextResponse.json(
+        { error: 'Lead not found or access denied' },
+        { status: 404 }
       );
+    }
+
+    // Update the notes
+    await db.run(
+      'UPDATE leads SET notes = $1 WHERE id = $2 AND user_id = $3',
+      [updateData.notes, updateData.lead_id, decoded.userId]
+    );
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Notes updated successfully' 
     });
+
   } catch (error) {
     console.error('Update notes API error:', error);
     return NextResponse.json(
@@ -155,4 +121,4 @@ export async function PUT(request: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}

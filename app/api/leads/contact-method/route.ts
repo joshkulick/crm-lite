@@ -53,106 +53,85 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const leadId = searchParams.get('lead_id');
 
-    return new Promise<NextResponse>((resolve) => {
-      if (leadId) {
-        // Get specific lead contact info
-        db.get(
-          `SELECT id, company, contact_name, point_of_contact, preferred_contact_method, 
-           preferred_contact_value, phone_numbers, emails, status, next_follow_up, pipeline, created_at, notes
-           FROM leads 
-           WHERE id = ? AND user_id = ?`,
-          [leadId, decoded.userId],
-          (err: Error | null, row: LeadContactInfo | undefined) => {
-            if (err) {
-              console.error('Database error:', err);
-              resolve(NextResponse.json(
-                { error: 'Database error' },
-                { status: 500 }
-              ));
-              return;
-            }
+    if (leadId) {
+      // Get specific lead contact info
+      const row = await db.get(
+        `SELECT id, company, contact_name, point_of_contact, preferred_contact_method, 
+         preferred_contact_value, phone_numbers, emails, status, next_follow_up, pipeline, created_at, notes
+         FROM leads 
+         WHERE id = $1 AND user_id = $2`,
+        [leadId, decoded.userId]
+      ) as LeadContactInfo | undefined;
 
-            if (!row) {
-              resolve(NextResponse.json(
-                { error: 'Lead not found' },
-                { status: 404 }
-              ));
-              return;
-            }
-
-            // Parse JSON fields
-            let phoneNumbers = [];
-            let emails = [];
-
-            try {
-              phoneNumbers = JSON.parse(row.phone_numbers || '[]');
-            } catch {
-              console.warn('Failed to parse phone_numbers for lead:', row.id);
-            }
-
-            try {
-              emails = JSON.parse(row.emails || '[]');
-            } catch {
-              console.warn('Failed to parse emails for lead:', row.id);
-            }
-
-            resolve(NextResponse.json({
-              lead: {
-                ...row,
-                phone_numbers: phoneNumbers,
-                emails: emails
-              }
-            }));
-          }
-        );
-      } else {
-        // Get all leads with contact info for the user
-        db.all(
-          `SELECT id, company, contact_name, point_of_contact, preferred_contact_method, 
-           preferred_contact_value, phone_numbers, emails, status, next_follow_up, pipeline, created_at, notes
-           FROM leads 
-           WHERE user_id = ? 
-           ORDER BY created_at DESC`,
-          [decoded.userId],
-          (err: Error | null, rows: LeadContactInfo[]) => {
-            if (err) {
-              console.error('Database error:', err);
-              resolve(NextResponse.json(
-                { error: 'Database error' },
-                { status: 500 }
-              ));
-              return;
-            }
-
-            // Parse JSON fields for all leads
-            const leads = rows.map(row => {
-              let phoneNumbers = [];
-              let emails = [];
-
-              try {
-                phoneNumbers = JSON.parse(row.phone_numbers || '[]');
-              } catch {
-                console.warn('Failed to parse phone_numbers for lead:', row.id);
-              }
-
-              try {
-                emails = JSON.parse(row.emails || '[]');
-              } catch {
-                console.warn('Failed to parse emails for lead:', row.id);
-              }
-
-              return {
-                ...row,
-                phone_numbers: phoneNumbers,
-                emails: emails
-              };
-            });
-
-            resolve(NextResponse.json({ leads }));
-          }
+      if (!row) {
+        return NextResponse.json(
+          { error: 'Lead not found' },
+          { status: 404 }
         );
       }
-    });
+
+      // Parse JSON fields
+      let phoneNumbers = [];
+      let emails = [];
+
+      try {
+        phoneNumbers = JSON.parse(row.phone_numbers || '[]');
+      } catch {
+        console.warn('Failed to parse phone_numbers for lead:', row.id);
+      }
+
+      try {
+        emails = JSON.parse(row.emails || '[]');
+      } catch {
+        console.warn('Failed to parse emails for lead:', row.id);
+      }
+
+      return NextResponse.json({
+        lead: {
+          ...row,
+          phone_numbers: phoneNumbers,
+          emails: emails
+        }
+      });
+
+    } else {
+      // Get all leads with contact info for the user
+      const rows = await db.all(
+        `SELECT id, company, contact_name, point_of_contact, preferred_contact_method, 
+         preferred_contact_value, phone_numbers, emails, status, next_follow_up, pipeline, created_at, notes
+         FROM leads 
+         WHERE user_id = $1 
+         ORDER BY created_at DESC`,
+        [decoded.userId]
+      ) as LeadContactInfo[];
+
+      // Parse JSON fields for all leads
+      const leads = rows.map(row => {
+        let phoneNumbers = [];
+        let emails = [];
+
+        try {
+          phoneNumbers = JSON.parse(row.phone_numbers || '[]');
+        } catch {
+          console.warn('Failed to parse phone_numbers for lead:', row.id);
+        }
+
+        try {
+          emails = JSON.parse(row.emails || '[]');
+        } catch {
+          console.warn('Failed to parse emails for lead:', row.id);
+        }
+
+        return {
+          ...row,
+          phone_numbers: phoneNumbers,
+          emails: emails
+        };
+      });
+
+      return NextResponse.json({ leads });
+    }
+
   } catch (error) {
     console.error('Get contact method API error:', error);
     return NextResponse.json(
@@ -197,77 +176,54 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    return new Promise<NextResponse>((resolve) => {
-      // First verify the lead belongs to the user
-      db.get(
-        'SELECT id FROM leads WHERE id = ? AND user_id = ?',
-        [updateData.lead_id, decoded.userId],
-        (err: Error | null, existingLead: { id: number } | undefined) => {
-          if (err) {
-            console.error('Database error:', err);
-            resolve(NextResponse.json(
-              { error: 'Database error' },
-              { status: 500 }
-            ));
-            return;
-          }
+    // First verify the lead belongs to the user
+    const existingLead = await db.get(
+      'SELECT id FROM leads WHERE id = $1 AND user_id = $2',
+      [updateData.lead_id, decoded.userId]
+    ) as { id: number } | undefined;
 
-          if (!existingLead) {
-            resolve(NextResponse.json(
-              { error: 'Lead not found or does not belong to you' },
-              { status: 404 }
-            ));
-            return;
-          }
-
-          // Update the contact method information
-          db.run(
-            `UPDATE leads 
-             SET contact_name = ?, 
-                 point_of_contact = ?, 
-                 preferred_contact_method = ?, 
-                 preferred_contact_value = ?
-             WHERE id = ? AND user_id = ?`,
-            [
-              updateData.contact_name || null,
-              updateData.point_of_contact || null,
-              updateData.preferred_contact_method || null,
-              updateData.preferred_contact_value || null,
-              updateData.lead_id,
-              decoded.userId
-            ],
-            function(updateErr: Error | null) {
-              if (updateErr) {
-                console.error('Error updating contact method:', updateErr);
-                resolve(NextResponse.json(
-                  { error: 'Failed to update contact method' },
-                  { status: 500 }
-                ));
-                return;
-              }
-
-              if (this.changes === 0) {
-                resolve(NextResponse.json(
-                  { error: 'No changes made' },
-                  { status: 400 }
-                ));
-                return;
-              }
-
-              resolve(NextResponse.json({
-                message: 'Contact method updated successfully',
-                updated_fields: {
-                  contact_name: updateData.contact_name,
-                  point_of_contact: updateData.point_of_contact,
-                  preferred_contact_method: updateData.preferred_contact_method,
-                  preferred_contact_value: updateData.preferred_contact_value
-                }
-              }));
-            }
-          );
-        }
+    if (!existingLead) {
+      return NextResponse.json(
+        { error: 'Lead not found or does not belong to you' },
+        { status: 404 }
       );
+    }
+
+    // Update the contact method information
+    const result = await db.run(
+      `UPDATE leads 
+       SET contact_name = $1, 
+           point_of_contact = $2, 
+           preferred_contact_method = $3, 
+           preferred_contact_value = $4
+       WHERE id = $5 AND user_id = $6`,
+      [
+        updateData.contact_name || null,
+        updateData.point_of_contact || null,
+        updateData.preferred_contact_method || null,
+        updateData.preferred_contact_value || null,
+        updateData.lead_id,
+        decoded.userId
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { error: 'No changes made' },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({
+      message: 'Contact method updated successfully',
+      updated_fields: {
+        contact_name: updateData.contact_name,
+        point_of_contact: updateData.point_of_contact,
+        preferred_contact_method: updateData.preferred_contact_method,
+        preferred_contact_value: updateData.preferred_contact_value
+      }
     });
+
   } catch (error) {
     console.error('Update contact method API error:', error);
     return NextResponse.json(

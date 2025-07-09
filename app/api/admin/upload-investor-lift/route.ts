@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
-import { db } from '@/lib/db';
+import { pool } from '@/lib/db';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
@@ -75,123 +75,109 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Process the upload
-    return new Promise<NextResponse>((resolve) => {
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+    const totalCompanies = uploadData.consolidated_data.length;
 
-        let insertedCount = 0;
-        let errorCount = 0;
-        const totalCompanies = uploadData.consolidated_data.length;
+    if (totalCompanies === 0) {
+      return NextResponse.json(
+        { error: 'No companies found in the data' },
+        { status: 400 }
+      );
+    }
 
-        if (totalCompanies === 0) {
-          db.run('ROLLBACK');
-          resolve(NextResponse.json(
-            { error: 'No companies found in the data' },
-            { status: 400 }
-          ));
-          return;
-        }
+    // Get a client from the pool for transaction
+    const client = await pool.connect();
 
-        // Prepare the insert statement
-        const insertQuery = `
-          INSERT INTO investor_lift_companies (
-            company_name, 
-            contact_names, 
-            deal_urls, 
-            phone_numbers, 
-            emails, 
-            user_id
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `;
+    try {
+      // Start transaction
+      await client.query('BEGIN');
 
-        const stmt = db.prepare(insertQuery);
+      let insertedCount = 0;
+      let errorCount = 0;
 
-        // Insert each company
-        uploadData.consolidated_data.forEach((company) => {
-          try {
-            // Validate required fields
-            if (!company.company_name) {
-              console.warn('Skipping company with missing name');
-              errorCount++;
-              return;
-            }
+      // Prepare the insert statement (user_id should be NULL for unclaimed companies)
+      const insertQuery = `
+        INSERT INTO investor_lift_companies (
+          company_name, 
+          contact_names, 
+          deal_urls, 
+          phone_numbers, 
+          emails, 
+          user_id
+        ) VALUES ($1, $2, $3, $4, $5, $6)
+      `;
 
-            // Convert arrays to JSON strings for storage
-            const contactNamesJson = JSON.stringify(company.contact_names || []);
-            const dealUrlsJson = JSON.stringify(company.deal_urls || []);
-            const phoneNumbersJson = JSON.stringify(company.phone_numbers || []);
-            const emailsJson = JSON.stringify(company.emails || []);
-
-            stmt.run([
-              company.company_name,
-              contactNamesJson,
-              dealUrlsJson,
-              phoneNumbersJson,
-              emailsJson,
-              decoded.userId
-            ], function(err: Error | null) {
-              if (err) {
-                console.error('Error inserting company:', company.company_name, err);
-                errorCount++;
-              } else {
-                insertedCount++;
-              }
-
-              // Check if we've processed all companies
-              if (insertedCount + errorCount === totalCompanies) {
-                stmt.finalize();
-
-                if (errorCount > 0) {
-                  console.warn(`Upload completed with ${errorCount} errors out of ${totalCompanies} companies`);
-                }
-
-                if (insertedCount === 0) {
-                  db.run('ROLLBACK');
-                  resolve(NextResponse.json(
-                    { error: 'Failed to insert any companies' },
-                    { status: 500 }
-                  ));
-                } else {
-                  db.run('COMMIT', (commitErr) => {
-                    if (commitErr) {
-                      console.error('Commit error:', commitErr);
-                      resolve(NextResponse.json(
-                        { error: 'Failed to commit transaction' },
-                        { status: 500 }
-                      ));
-                    } else {
-                      resolve(NextResponse.json({
-                        message: 'Upload completed successfully',
-                        stats: {
-                          total_processed: totalCompanies,
-                          successfully_inserted: insertedCount,
-                          errors: errorCount,
-                          consolidation_stats: uploadData.consolidation_stats
-                        }
-                      }));
-                    }
-                  });
-                }
-              }
-            });
-          } catch (companyError) {
-            console.error('Error processing company:', company.company_name, companyError);
+      // Process each company
+      for (const company of uploadData.consolidated_data) {
+        try {
+          // Validate required fields
+          if (!company.company_name) {
+            console.warn('Skipping company with missing name');
             errorCount++;
-            
-            // Check if we've processed all companies
-            if (insertedCount + errorCount === totalCompanies) {
-              stmt.finalize();
-              db.run('ROLLBACK');
-              resolve(NextResponse.json(
-                { error: 'Failed to process companies' },
-                { status: 500 }
-              ));
-            }
+            continue;
           }
-        });
+
+          // Convert arrays to JSON strings for storage
+          const contactNamesJson = JSON.stringify(company.contact_names || []);
+          const dealUrlsJson = JSON.stringify(company.deal_urls || []);
+          const phoneNumbersJson = JSON.stringify(company.phone_numbers || []);
+          const emailsJson = JSON.stringify(company.emails || []);
+
+          // Execute the insert with NULL user_id (unclaimed)
+          await client.query(insertQuery, [
+            company.company_name,
+            contactNamesJson,
+            dealUrlsJson,
+            phoneNumbersJson,
+            emailsJson,
+            null  // NULL user_id means unclaimed
+          ]);
+
+          insertedCount++;
+
+        } catch (companyError) {
+          console.error('Error inserting company:', company.company_name, companyError);
+          errorCount++;
+        }
+      }
+
+      if (insertedCount === 0) {
+        await client.query('ROLLBACK');
+        return NextResponse.json(
+          { error: 'Failed to insert any companies' },
+          { status: 500 }
+        );
+      }
+
+      // Commit transaction
+      await client.query('COMMIT');
+
+      if (errorCount > 0) {
+        console.warn(`Upload completed with ${errorCount} errors out of ${totalCompanies} companies`);
+      }
+
+      return NextResponse.json({
+        message: 'Upload completed successfully',
+        stats: {
+          total_processed: totalCompanies,
+          successfully_inserted: insertedCount,
+          errors: errorCount,
+          consolidation_stats: uploadData.consolidation_stats
+        }
       });
-    });
+
+    } catch (error) {
+      // Rollback on error
+      await client.query('ROLLBACK');
+      console.error('Error in upload transaction:', error);
+      
+      return NextResponse.json(
+        { error: 'Failed to process upload' },
+        { status: 500 }
+      );
+    } finally {
+      // Release the client back to pool
+      client.release();
+    }
 
   } catch (error) {
     console.error('Upload API error:', error);

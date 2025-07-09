@@ -22,57 +22,47 @@ export async function GET(request: NextRequest) {
     }
 
     // Query to calculate stats from the unified Investor Lift table
-    return new Promise<NextResponse>((resolve) => {
-      const query = `
-        SELECT 
-          COUNT(*) as total_companies,
-          SUM(
-            CASE 
-              WHEN phone_numbers != '[]' AND phone_numbers IS NOT NULL 
-              THEN 1 
-              ELSE 0 
-            END
-          ) as companies_with_phones,
-          SUM(
-            CASE 
-              WHEN emails != '[]' AND emails IS NOT NULL 
-              THEN 1 
-              ELSE 0 
-            END
-          ) as companies_with_emails,
-          MAX(created_at) as last_import_date,
-          MIN(created_at) as first_import_date
-        FROM investor_lift_companies
-      `;
+    const query = `
+      SELECT 
+        COUNT(*) as total_companies,
+        SUM(
+          CASE 
+            WHEN phone_numbers != '[]' AND phone_numbers IS NOT NULL 
+            THEN 1 
+            ELSE 0 
+          END
+        ) as companies_with_phones,
+        SUM(
+          CASE 
+            WHEN emails != '[]' AND emails IS NOT NULL 
+            THEN 1 
+            ELSE 0 
+          END
+        ) as companies_with_emails,
+        MAX(created_at) as last_import_date,
+        MIN(created_at) as first_import_date
+      FROM investor_lift_companies
+    `;
 
-      db.get(query, [], (err: Error | null, row: ImportStatsRow | undefined) => {
-        if (err) {
-          console.error('Database error:', err);
-          resolve(NextResponse.json(
-            { error: 'Database error' },
-            { status: 500 }
-          ));
-          return;
-        }
+    const row = await db.get(query) as ImportStatsRow | undefined;
 
-        // Return stats or default values if no data exists
-        const stats = row || {
-          total_companies: 0,
-          companies_with_phones: 0,
-          companies_with_emails: 0,
-          last_import_date: null,
-          first_import_date: null
-        };
+    // Return stats or default values if no data exists
+    const stats = row || {
+      total_companies: 0,
+      companies_with_phones: 0,
+      companies_with_emails: 0,
+      last_import_date: null,
+      first_import_date: null
+    };
 
-        resolve(NextResponse.json({
-          total_companies: Number(stats.total_companies) || 0,
-          companies_with_phones: Number(stats.companies_with_phones) || 0,
-          companies_with_emails: Number(stats.companies_with_emails) || 0,
-          last_import_date: stats.last_import_date,
-          first_import_date: stats.first_import_date
-        }));
-      });
+    return NextResponse.json({
+      total_companies: Number(stats.total_companies) || 0,
+      companies_with_phones: Number(stats.companies_with_phones) || 0,
+      companies_with_emails: Number(stats.companies_with_emails) || 0,
+      last_import_date: stats.last_import_date,
+      first_import_date: stats.first_import_date
     });
+
   } catch (error) {
     console.error('Import stats API error:', error);
     return NextResponse.json(

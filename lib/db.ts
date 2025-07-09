@@ -1,89 +1,126 @@
-import sqlite3 from 'sqlite3';
-import path from 'path';
+import { Pool } from 'pg';
 
-// Use environment variable for database path, defaulting to a data directory
-const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'database.sqlite');
+// Use environment variable for database connection
+const connectionString = process.env.DATABASE_URL;
 
-// Ensure the directory exists
-import fs from 'fs';
-const dbDir = path.dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+if (!connectionString) {
+  throw new Error('DATABASE_URL environment variable is required');
 }
 
-export const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('Error opening database:', err);
-  } else {
-    console.log('Connected to SQLite database at:', dbPath);
-    initTables();
-  }
+// Create PostgreSQL connection pool
+export const pool = new Pool({
+  connectionString,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-function initTables() {
-  // Create users table
-  db.run(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // Create leads table for basic CRM data
-  db.run(`
-    CREATE TABLE IF NOT EXISTS leads (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      deal_id INTEGER,
-      contact_name TEXT,
-      company TEXT,
-      account_type TEXT,
-      phone_numbers TEXT,
-      emails TEXT,
-      point_of_contact TEXT,
-      preferred_contact_method TEXT CHECK (preferred_contact_method IN ('call', 'email', 'text')),
-      preferred_contact_value TEXT,
-      notes TEXT,  -- ✅ Unified notes column
-      status TEXT DEFAULT 'new',
-      next_follow_up DATETIME,
-      pipeline TEXT DEFAULT 'Not Outreached' CHECK (pipeline IN ('Not Outreached', 'Outreached', 'Sent Info', 'Demo', 'Trial', 'Customer', 'Not Interested')),
-      scrape_timestamp DATETIME,
-      user_id INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
-
-  // Add new columns to existing leads table if they don't exist
-  db.run(`ALTER TABLE leads ADD COLUMN next_follow_up DATETIME`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.log('Note: next_follow_up column already exists or could not be added');
-    }
-  });
-
-  db.run(`ALTER TABLE leads ADD COLUMN pipeline TEXT DEFAULT 'Not Outreached'`, (err) => {
-    if (err && !err.message.includes('duplicate column name')) {
-      console.log('Note: pipeline column already exists or could not be added');
-    }
-  });
-
-  // ====== INVESTOR LIFT SCRAPE PLUGIN TABLES ======
+// Create a db object that mimics the SQLite interface for easier migration
+export const db = {
+  // For direct queries
+  query: (text: string, params?: any[]) => pool.query(text, params),
   
-  // Single unified table for all Investor Lift company data
-  db.run(`
-    CREATE TABLE IF NOT EXISTS investor_lift_companies (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      company_name TEXT NOT NULL,
-      contact_names TEXT, -- JSON array of contact names
-      deal_urls TEXT, -- JSON array of deal URLs
-      phone_numbers TEXT, -- JSON array of phone objects with associated_deal_urls
-      emails TEXT, -- JSON array of email objects with associated_deal_urls
-      user_id INTEGER,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-  `);
+  // SQLite-compatible methods for existing code
+  run: async (sql: string, params?: any[]) => {
+    const result = await pool.query(sql, params);
+    return result;
+  },
+  
+  get: async (sql: string, params?: any[]) => {
+    const result = await pool.query(sql, params);
+    return result.rows[0];
+  },
+  
+  all: async (sql: string, params?: any[]) => {
+    const result = await pool.query(sql, params);
+    return result.rows;
+  },
 
-  // ====== END INVESTOR LIFT PLUGIN TABLES ======
+  // For prepared statements (if needed)
+  prepare: (sql: string) => ({
+    run: async (params?: any[]) => {
+      const result = await pool.query(sql, params);
+      return { lastID: result.rows[0]?.id, changes: result.rowCount };
+    },
+    get: async (params?: any[]) => {
+      const result = await pool.query(sql, params);
+      return result.rows[0];
+    },
+    all: async (params?: any[]) => {
+      const result = await pool.query(sql, params);
+      return result.rows;
+    },
+    finalize: () => {} // No-op for PostgreSQL
+  })
+};
+
+// Test connection and initialize tables
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('Error connecting to PostgreSQL:', err);
+    return;
+  }
+  
+  console.log('✅ Connected to PostgreSQL database');
+  release();
+  initTables();
+});
+
+async function initTables() {
+  try {
+    // Create users table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create leads table for basic CRM data with all columns included
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS leads (
+        id SERIAL PRIMARY KEY,
+        deal_id INTEGER,
+        contact_name TEXT,
+        company TEXT,
+        account_type TEXT,
+        phone_numbers TEXT,
+        emails TEXT,
+        point_of_contact TEXT,
+        preferred_contact_method TEXT CHECK (preferred_contact_method IN ('call', 'email', 'text')),
+        preferred_contact_value TEXT,
+        notes TEXT,
+        status TEXT DEFAULT 'new',
+        next_follow_up TIMESTAMP,
+        pipeline TEXT DEFAULT 'Not Outreached' CHECK (pipeline IN ('Not Outreached', 'Outreached', 'Sent Info', 'Demo', 'Trial', 'Customer', 'Not Interested')),
+        scrape_timestamp TIMESTAMP,
+        user_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `);
+
+    // ====== INVESTOR LIFT SCRAPE PLUGIN TABLES ======
+    
+    // Single unified table for all Investor Lift company data
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS investor_lift_companies (
+        id SERIAL PRIMARY KEY,
+        company_name TEXT NOT NULL,
+        contact_names TEXT, -- JSON array of contact names
+        deal_urls TEXT, -- JSON array of deal URLs
+        phone_numbers TEXT, -- JSON array of phone objects with associated_deal_urls
+        emails TEXT, -- JSON array of email objects with associated_deal_urls
+        user_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `);
+
+    // ====== END INVESTOR LIFT PLUGIN TABLES ======
+    
+    console.log('✅ Database tables initialized');
+  } catch (error) {
+    console.error('Error initializing tables:', error);
+  }
 }

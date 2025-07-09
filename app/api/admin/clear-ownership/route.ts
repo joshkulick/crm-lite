@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
-import { db } from '@/lib/db';
+import { pool } from '@/lib/db';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
@@ -27,77 +27,56 @@ export async function POST(request: NextRequest) {
     // TODO: Add admin role check here if you implement user roles
     // For now, any authenticated user can clear ownership (for testing)
 
-    return new Promise<NextResponse>((resolve) => {
-      db.serialize(() => {
-        db.run('BEGIN TRANSACTION');
+    // Get a client from the pool for transaction
+    const client = await pool.connect();
 
-        // First, get count of companies that will be affected
-        db.get(
-          'SELECT COUNT(*) as count FROM investor_lift_companies WHERE user_id IS NOT NULL',
-          [],
-          (countErr: Error | null, countResult: { count: number } | undefined) => {
-            if (countErr) {
-              console.error('Error counting owned companies:', countErr);
-              db.run('ROLLBACK');
-              resolve(NextResponse.json(
-                { error: 'Database error during count' },
-                { status: 500 }
-              ));
-              return;
-            }
+    try {
+      // Start transaction
+      await client.query('BEGIN');
 
-            const clearedCount = countResult?.count || 0;
+      // First, get count of companies that will be affected
+      const countResult = await client.query(
+        'SELECT COUNT(*) as count FROM investor_lift_companies WHERE user_id IS NOT NULL'
+      );
 
-            // Clear all ownership from investor_lift_companies
-            db.run(
-              'UPDATE investor_lift_companies SET user_id = NULL',
-              [],
-              function(updateErr: Error | null) {
-                if (updateErr) {
-                  console.error('Error clearing ownership:', updateErr);
-                  db.run('ROLLBACK');
-                  resolve(NextResponse.json(
-                    { error: 'Failed to clear ownership' },
-                    { status: 500 }
-                  ));
-                  return;
-                }
+      const clearedCount = parseInt(countResult.rows[0]?.count || '0');
 
-                // Also clear claimed leads from the leads table (optional)
-                db.run(
-                  'DELETE FROM leads WHERE account_type = ?',
-                  ['investor_lift_claimed'],
-                  function(deleteErr: Error | null) {
-                    if (deleteErr) {
-                      console.error('Error deleting claimed leads:', deleteErr);
-                      // Don't fail the request if this fails
-                    }
+      // Clear all ownership from investor_lift_companies
+      await client.query(
+        'UPDATE investor_lift_companies SET user_id = NULL'
+      );
 
-                    db.run('COMMIT', (commitErr: Error | null) => {
-                      if (commitErr) {
-                        console.error('Commit error:', commitErr);
-                        resolve(NextResponse.json(
-                          { error: 'Failed to commit changes' },
-                          { status: 500 }
-                        ));
-                      } else {
-                        console.log(`Successfully cleared ownership for ${clearedCount} companies by user ${decoded.username}`);
-                        
-                        resolve(NextResponse.json({
-                          message: 'Ownership cleared successfully',
-                          cleared_count: clearedCount,
-                          deleted_leads: this.changes || 0
-                        }));
-                      }
-                    });
-                  }
-                );
-              }
-            );
-          }
-        );
+      // Also clear claimed leads from the leads table (optional)
+      const deleteResult = await client.query(
+        'DELETE FROM leads WHERE account_type = $1',
+        ['investor_lift_claimed']
+      );
+
+      // Commit transaction
+      await client.query('COMMIT');
+
+      console.log(`Successfully cleared ownership for ${clearedCount} companies by user ${decoded.username}`);
+      
+      return NextResponse.json({
+        message: 'Ownership cleared successfully',
+        cleared_count: clearedCount,
+        deleted_leads: deleteResult.rowCount || 0
       });
-    });
+
+    } catch (error) {
+      // Rollback on error
+      await client.query('ROLLBACK');
+      console.error('Error in clear ownership transaction:', error);
+      
+      return NextResponse.json(
+        { error: 'Failed to clear ownership' },
+        { status: 500 }
+      );
+    } finally {
+      // Release the client back to pool
+      client.release();
+    }
+
   } catch (error) {
     console.error('Clear ownership API error:', error);
     return NextResponse.json(

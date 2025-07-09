@@ -67,66 +67,43 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    return new Promise<NextResponse>((resolve) => {
-      // First verify the lead belongs to the user
-      db.get(
-        'SELECT id FROM leads WHERE id = ? AND user_id = ?',
-        [updateData.lead_id, decoded.userId],
-        (err: Error | null, existingLead: { id: number } | undefined) => {
-          if (err) {
-            console.error('Database error:', err);
-            resolve(NextResponse.json(
-              { error: 'Database error' },
-              { status: 500 }
-            ));
-            return;
-          }
+    // First verify the lead belongs to the user
+    const existingLead = await db.get(
+      'SELECT id FROM leads WHERE id = $1 AND user_id = $2',
+      [updateData.lead_id, decoded.userId]
+    ) as { id: number } | undefined;
 
-          if (!existingLead) {
-            resolve(NextResponse.json(
-              { error: 'Lead not found or does not belong to you' },
-              { status: 404 }
-            ));
-            return;
-          }
-
-          // Update the pipeline status
-          db.run(
-            `UPDATE leads 
-             SET pipeline = ?
-             WHERE id = ? AND user_id = ?`,
-            [
-              updateData.pipeline,
-              updateData.lead_id,
-              decoded.userId
-            ],
-            function(updateErr: Error | null) {
-              if (updateErr) {
-                console.error('Error updating pipeline status:', updateErr);
-                resolve(NextResponse.json(
-                  { error: 'Failed to update pipeline status' },
-                  { status: 500 }
-                ));
-                return;
-              }
-
-              if (this.changes === 0) {
-                resolve(NextResponse.json(
-                  { error: 'No changes made' },
-                  { status: 400 }
-                ));
-                return;
-              }
-
-              resolve(NextResponse.json({
-                message: 'Pipeline status updated successfully',
-                pipeline: updateData.pipeline
-              }));
-            }
-          );
-        }
+    if (!existingLead) {
+      return NextResponse.json(
+        { error: 'Lead not found or does not belong to you' },
+        { status: 404 }
       );
+    }
+
+    // Update the pipeline status
+    const result = await db.run(
+      `UPDATE leads 
+       SET pipeline = $1
+       WHERE id = $2 AND user_id = $3`,
+      [
+        updateData.pipeline,
+        updateData.lead_id,
+        decoded.userId
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { error: 'No changes made' },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({
+      message: 'Pipeline status updated successfully',
+      pipeline: updateData.pipeline
     });
+
   } catch (error) {
     console.error('Update pipeline API error:', error);
     return NextResponse.json(
@@ -134,4 +111,4 @@ export async function PUT(request: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}

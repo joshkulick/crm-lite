@@ -24,59 +24,48 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return new Promise<NextResponse>((resolve) => {
-      db.get(
-        'SELECT * FROM users WHERE username = ?',
-        [username],
-        async (err: Error | null, user: User | undefined) => {
-          if (err) {
-            resolve(NextResponse.json(
-              { error: 'Database error' },
-              { status: 500 }
-            ));
-            return;
-          }
+    // Get user from database
+    const user = await db.get(
+      'SELECT * FROM users WHERE username = $1',
+      [username]
+    ) as User | undefined;
 
-          if (!user) {
-            resolve(NextResponse.json(
-              { error: 'Invalid credentials' },
-              { status: 401 }
-            ));
-            return;
-          }
-
-          const isValidPassword = await bcrypt.compare(password, user.password);
-          
-          if (!isValidPassword) {
-            resolve(NextResponse.json(
-              { error: 'Invalid credentials' },
-              { status: 401 }
-            ));
-            return;
-          }
-
-          const token = jwt.sign(
-            { userId: user.id, username: user.username },
-            JWT_SECRET,
-            { expiresIn: '7d' }
-          );
-
-          const response = NextResponse.json(
-            { message: 'Signed in successfully', user: { id: user.id, username: user.username } },
-            { status: 200 }
-          );
-
-          response.cookies.set('auth-token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 7 * 24 * 60 * 60 // 7 days
-          });
-
-          resolve(response);
-        }
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Invalid credentials' },
+        { status: 401 }
       );
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    
+    if (!isValidPassword) {
+      return NextResponse.json(
+        { error: 'Invalid credentials' },
+        { status: 401 }
+      );
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, username: user.username },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    const response = NextResponse.json(
+      { message: 'Signed in successfully', user: { id: user.id, username: user.username } },
+      { status: 200 }
+    );
+
+    response.cookies.set('auth-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 // 7 days
     });
+
+    return response;
+
   } catch (err) {
     console.error('Auth error:', err);
     return NextResponse.json(

@@ -1,7 +1,7 @@
 // app/api/outreach/unclaim-company/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
-import { db } from '@/lib/db';
+import { pool } from '@/lib/db';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
@@ -41,74 +41,49 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return new Promise<NextResponse>((resolve) => {
-      db.serialize(() => {
-        // Start a transaction
-        db.run('BEGIN TRANSACTION', (beginErr: Error | null) => {
-          if (beginErr) {
-            console.error('Transaction begin error:', beginErr);
-            resolve(NextResponse.json(
-              { error: 'Database transaction error' },
-              { status: 500 }
-            ));
-            return;
-          }
+    // Get a client from the pool for transaction
+    const client = await pool.connect();
 
-          // First, remove from leads table (claimed leads)
-          db.run(
-            'DELETE FROM leads WHERE user_id = ? AND company = ? AND deal_id = ?',
-            [decoded.userId, unclaimData.company_name, unclaimData.company_id],
-            function(deleteErr: Error | null) {
-              if (deleteErr) {
-                console.error('Error deleting from leads:', deleteErr);
-                db.run('ROLLBACK');
-                resolve(NextResponse.json(
-                  { error: 'Failed to remove lead from your list' },
-                  { status: 500 }
-                ));
-                return;
-              }
+    try {
+      // Start transaction
+      await client.query('BEGIN');
 
-              // Then, update the investor_lift_companies table to mark as unclaimed
-              db.run(
-                'UPDATE investor_lift_companies SET user_id = NULL WHERE id = ?',
-                [unclaimData.company_id],
-                function(updateErr: Error | null) {
-                  if (updateErr) {
-                    console.error('Error updating investor_lift_companies:', updateErr);
-                    db.run('ROLLBACK');
-                    resolve(NextResponse.json(
-                      { error: 'Failed to update company status' },
-                      { status: 500 }
-                    ));
-                    return;
-                  }
+      // First, remove from leads table (claimed leads)
+      await client.query(
+        'DELETE FROM leads WHERE user_id = $1 AND company = $2 AND deal_id = $3',
+        [decoded.userId, unclaimData.company_name, unclaimData.company_id]
+      );
 
-                  // Commit the transaction
-                  db.run('COMMIT', (commitErr: Error | null) => {
-                    if (commitErr) {
-                      console.error('Commit error:', commitErr);
-                      resolve(NextResponse.json(
-                        { error: 'Failed to commit changes' },
-                        { status: 500 }
-                      ));
-                      return;
-                    }
+      // Then, update the investor_lift_companies table to mark as unclaimed
+      await client.query(
+        'UPDATE investor_lift_companies SET user_id = NULL WHERE id = $1',
+        [unclaimData.company_id]
+      );
 
-                    console.log(`User ${decoded.username} unclaimed company: ${unclaimData.company_name}`);
-                    
-                    resolve(NextResponse.json({
-                      message: 'Company unclaimed successfully',
-                      company_name: unclaimData.company_name
-                    }));
-                  });
-                }
-              );
-            }
-          );
-        });
+      // Commit the transaction
+      await client.query('COMMIT');
+
+      console.log(`User ${decoded.username} unclaimed company: ${unclaimData.company_name}`);
+      
+      return NextResponse.json({
+        message: 'Company unclaimed successfully',
+        company_name: unclaimData.company_name
       });
-    });
+
+    } catch (error) {
+      // Rollback on error
+      await client.query('ROLLBACK');
+      console.error('Error in unclaim company transaction:', error);
+      
+      return NextResponse.json(
+        { error: 'Failed to unclaim company' },
+        { status: 500 }
+      );
+    } finally {
+      // Release the client back to pool
+      client.release();
+    }
+
   } catch (error) {
     console.error('Unclaim company API error:', error);
     return NextResponse.json(

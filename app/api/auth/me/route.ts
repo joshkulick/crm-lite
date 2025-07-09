@@ -31,37 +31,25 @@ export async function GET(request: NextRequest) {
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
 
     // Get user from database
-    return new Promise<NextResponse>((resolve) => {
-      db.get(
-        'SELECT id, username, created_at FROM users WHERE id = ?',
-        [decoded.userId],
-        (err: Error | null, user: User | undefined) => {
-          if (err) {
-            console.error('Database error:', err);
-            resolve(NextResponse.json(
-              { error: 'Database error' },
-              { status: 500 }
-            ));
-            return;
-          }
+    const user = await db.get(
+      'SELECT id, username, created_at FROM users WHERE id = $1',
+      [decoded.userId]
+    ) as User | undefined;
 
-          if (!user) {
-            resolve(NextResponse.json(
-              { error: 'User not found' },
-              { status: 401 }
-            ));
-            return;
-          }
-
-          resolve(NextResponse.json({
-            user: {
-              id: user.id,
-              username: user.username
-            }
-          }));
-        }
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 401 }
       );
+    }
+
+    return NextResponse.json({
+      user: {
+        id: user.id,
+        username: user.username
+      }
     });
+
   } catch (error) {
     console.error('Token verification failed:', error);
     return NextResponse.json(

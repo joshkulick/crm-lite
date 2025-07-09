@@ -21,44 +21,34 @@ export async function GET(request: NextRequest) {
     }
 
     // Query to get all users with their lead counts
-    return new Promise<NextResponse>((resolve) => {
-      const query = `
-        SELECT 
-          u.id,
-          u.username,
-          u.created_at,
-          COUNT(l.id) as lead_count
-        FROM users u
-        LEFT JOIN leads l ON u.id = l.user_id
-        GROUP BY u.id, u.username, u.created_at
-        ORDER BY u.created_at DESC
-      `;
+    const query = `
+      SELECT 
+        u.id,
+        u.username,
+        u.created_at,
+        COUNT(l.id) as lead_count
+      FROM users u
+      LEFT JOIN leads l ON u.id = l.user_id
+      GROUP BY u.id, u.username, u.created_at
+      ORDER BY u.created_at DESC
+    `;
 
-      db.all(query, [], (err: Error | null, rows: UserWithLeads[]) => {
-        if (err) {
-          console.error('Database error:', err);
-          resolve(NextResponse.json(
-            { error: 'Database error' },
-            { status: 500 }
-          ));
-          return;
-        }
+    const rows = await db.all(query) as UserWithLeads[];
 
-        // Format the data
-        const users = rows.map(row => ({
-          id: row.id,
-          username: row.username,
-          created_at: row.created_at,
-          lead_count: Number(row.lead_count) || 0
-        }));
+    // Format the data
+    const users = rows.map(row => ({
+      id: row.id,
+      username: row.username,
+      created_at: row.created_at,
+      lead_count: Number(row.lead_count) || 0
+    }));
 
-        resolve(NextResponse.json({
-          users,
-          totalUsers: users.length,
-          totalLeads: users.reduce((sum, user) => sum + user.lead_count, 0)
-        }));
-      });
+    return NextResponse.json({
+      users,
+      totalUsers: users.length,
+      totalLeads: users.reduce((sum, user) => sum + user.lead_count, 0)
     });
+
   } catch (error) {
     console.error('Admin users API error:', error);
     return NextResponse.json(

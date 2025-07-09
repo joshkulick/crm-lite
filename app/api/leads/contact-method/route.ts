@@ -86,11 +86,24 @@ export async function GET(request: NextRequest) {
         console.warn('Failed to parse emails for lead:', row.id);
       }
 
+      // Fetch notes for this lead
+      let notes = [];
+      try {
+        const notesResult = await db.all(
+          'SELECT id, lead_id, user_id, content, created_at FROM lead_notes WHERE lead_id = $1 ORDER BY created_at DESC',
+          [row.id]
+        );
+        notes = notesResult;
+      } catch (error) {
+        console.warn('Failed to fetch notes for lead:', row.id, error);
+      }
+
       return NextResponse.json({
         lead: {
           ...row,
           phone_numbers: phoneNumbers,
-          emails: emails
+          emails: emails,
+          notes: notes
         }
       });
 
@@ -105,8 +118,8 @@ export async function GET(request: NextRequest) {
         [decoded.userId]
       ) as LeadContactInfo[];
 
-      // Parse JSON fields for all leads
-      const leads = rows.map(row => {
+      // Parse JSON fields and fetch notes for all leads
+      const leads = await Promise.all(rows.map(async row => {
         let phoneNumbers = [];
         let emails = [];
 
@@ -122,12 +135,25 @@ export async function GET(request: NextRequest) {
           console.warn('Failed to parse emails for lead:', row.id);
         }
 
+        // Fetch notes for this lead
+        let notes = [];
+        try {
+          const notesResult = await db.all(
+            'SELECT id, lead_id, user_id, content, created_at FROM lead_notes WHERE lead_id = $1 ORDER BY created_at DESC',
+            [row.id]
+          );
+          notes = notesResult;
+        } catch (error) {
+          console.warn('Failed to fetch notes for lead:', row.id, error);
+        }
+
         return {
           ...row,
           phone_numbers: phoneNumbers,
-          emails: emails
+          emails: emails,
+          notes: notes
         };
-      });
+      }));
 
       return NextResponse.json({ leads });
     }

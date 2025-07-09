@@ -31,6 +31,29 @@ interface ClaimCompanyRequest {
   preferred_contact_value?: string;
 }
 
+// Global event listeners for real-time updates
+const eventListeners = new Map<string, (data: unknown) => void>();
+
+// Function to broadcast claim events to all connected clients
+function broadcastClaimEvent(companyId: number, claimedByUsername: string, companyName: string) {
+  const eventData = {
+    type: 'company_claimed',
+    company_id: companyId,
+    claimed_by_username: claimedByUsername,
+    company_name: companyName,
+    timestamp: new Date().toISOString()
+  };
+
+  // Broadcast to all connected clients
+  eventListeners.forEach((listener) => {
+    try {
+      listener(eventData);
+    } catch (error) {
+      console.error('Error broadcasting to listener:', error);
+    }
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Check if user is authenticated
@@ -93,6 +116,20 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // Check if company is already claimed by someone else
+      const existingClaim = await client.query(
+        'SELECT user_id FROM investor_lift_companies WHERE id = $1 AND user_id IS NOT NULL',
+        [claimData.company_id]
+      );
+
+      if (existingClaim.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return NextResponse.json(
+          { error: 'This company has already been claimed by another user' },
+          { status: 409 }
+        );
+      }
+
       // Create a consolidated contact string
       let contactInfo = '';
       
@@ -150,6 +187,9 @@ export async function POST(request: NextRequest) {
       // Commit transaction
       await client.query('COMMIT');
 
+      // Broadcast the claim event to all connected clients
+      broadcastClaimEvent(claimData.company_id, decoded.username, claimData.company_name);
+
       return NextResponse.json(
         { 
           message: 'Company claimed successfully',
@@ -185,3 +225,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Export the event system for SSE endpoint
+export { eventListeners, broadcastClaimEvent };

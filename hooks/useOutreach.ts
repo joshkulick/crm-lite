@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Company, Toast } from '@/components/outreach/types';
 import { FilterOptions } from '@/components/outreach/FilterBar';
+import { useRealtimeUpdates } from './useRealtimeUpdates';
 
 export const useOutreach = () => {
   const { user, loading } = useAuth();
@@ -188,6 +189,73 @@ export const useOutreach = () => {
     }
   }, [loadingCompanies, hasMore, page, loadCompanies]);
 
+  // Real-time updates for company claims
+  const handleCompanyClaimed = useCallback((event: { type: string; company_id?: number; claimed_by_username?: string; company_name?: string }) => {
+    if (event.type === 'company_claimed' && event.company_id) {
+      // Update the company in the list to show it's claimed
+      setCompanies(prev => prev.map(company => 
+        company.id === event.company_id 
+          ? { 
+              ...company, 
+              is_claimed: true, 
+              claimed_by_username: event.claimed_by_username 
+            }
+          : company
+      ));
+      
+      // Update selected company if it's the same one
+      if (selectedCompany?.id === event.company_id) {
+        setSelectedCompany(prev => prev ? {
+          ...prev,
+          is_claimed: true,
+          claimed_by_username: event.claimed_by_username
+        } : null);
+      }
+      
+      // Show notification if claimed by someone else
+      if (event.claimed_by_username !== user?.username) {
+        showToast(`${event.company_name} was claimed by ${event.claimed_by_username}`, 'error');
+      }
+    }
+  }, [selectedCompany, user?.username]);
+
+  // Real-time updates for company unclaims
+  const handleCompanyUnclaimed = useCallback((event: { type: string; company_id?: number; unclaimed_by_username?: string; company_name?: string }) => {
+    if (event.type === 'company_unclaimed' && event.company_id) {
+      // Update the company in the list to show it's unclaimed
+      setCompanies(prev => prev.map(company => 
+        company.id === event.company_id 
+          ? { 
+              ...company, 
+              is_claimed: false, 
+              claimed_by_username: undefined 
+            }
+          : company
+      ));
+      
+      // Update selected company if it's the same one
+      if (selectedCompany?.id === event.company_id) {
+        setSelectedCompany(prev => prev ? {
+          ...prev,
+          is_claimed: false,
+          claimed_by_username: undefined
+        } : null);
+      }
+      
+      // Show notification if unclaimed by someone else
+      if (event.unclaimed_by_username !== user?.username) {
+        showToast(`${event.company_name} was unclaimed by ${event.unclaimed_by_username}`, 'success');
+      }
+    }
+  }, [selectedCompany, user?.username]);
+
+  // Initialize real-time updates
+  const { isConnected } = useRealtimeUpdates({
+    onCompanyClaimed: handleCompanyClaimed,
+    onCompanyUnclaimed: handleCompanyUnclaimed,
+    enabled: !!user
+  });
+
   // Load initial companies
   useEffect(() => {
     if (user) {
@@ -219,6 +287,21 @@ export const useOutreach = () => {
     
     setClaimingCompany(company.id);
     
+    // Optimistic update - immediately show as claimed
+    const optimisticCompany = { 
+      ...company, 
+      is_claimed: true, 
+      claimed_by_username: user?.username 
+    };
+    
+    setCompanies(prev => prev.map(c => 
+      c.id === company.id ? optimisticCompany : c
+    ));
+    
+    if (selectedCompany?.id === company.id) {
+      setSelectedCompany(optimisticCompany);
+    }
+    
     try {
       const response = await fetch('/api/outreach/claim-company', {
         method: 'POST',
@@ -238,29 +321,31 @@ export const useOutreach = () => {
       const result = await response.json();
 
       if (response.ok) {
-        // Create the updated company object
-        const updatedCompany = { 
-          ...company, 
-          is_claimed: true, 
-          claimed_by_username: user?.username 
-        };
-        
-        // Update the company in the local state to show it's claimed
-        setCompanies(prev => prev.map(c => 
-          c.id === company.id ? updatedCompany : c
-        ));
-        
-        // IMPORTANT: Also update the selectedCompany if it's the same company
-        if (selectedCompany?.id === company.id) {
-          setSelectedCompany(updatedCompany);
-        }
-        
         showToast('Company claimed successfully! You can set contact preferences in the Contact Method section.');
       } else {
+        // Revert optimistic update on error
+        setCompanies(prev => prev.map(c => 
+          c.id === company.id ? company : c
+        ));
+        
+        if (selectedCompany?.id === company.id) {
+          setSelectedCompany(company);
+        }
+        
         showToast(result.error || 'Failed to claim company', 'error');
       }
     } catch (error) {
       console.error('Failed to claim company:', error);
+      
+      // Revert optimistic update on error
+      setCompanies(prev => prev.map(c => 
+        c.id === company.id ? company : c
+      ));
+      
+      if (selectedCompany?.id === company.id) {
+        setSelectedCompany(company);
+      }
+      
       showToast('Failed to claim company', 'error');
     } finally {
       setClaimingCompany(null);
@@ -332,6 +417,7 @@ export const useOutreach = () => {
     loading,
     searchQuery,
     filters,
+    isConnected,
     
     // Actions
     setSelectedCompany,

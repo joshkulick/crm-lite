@@ -14,6 +14,7 @@ import ContactInfoCard from '@/components/outreach/ContactInfoCard';
 import DealUrlsCard from '@/components/outreach/DealUrlsCard';
 import ToastNotifications from '@/components/outreach/ToastNotifications';
 import EmptyState from '@/components/outreach/EmptyState';
+import ConnectionStatus from '@/components/outreach/ConnectionStatus';
 
 
 const OutreachPage = () => {
@@ -38,7 +39,8 @@ const OutreachPage = () => {
     handleSearchChange,
     handlePhoneSearch,
     clearSearch,
-    handleFilterChange
+    handleFilterChange,
+    isConnected
   } = useOutreach();
 
   // Redirect to login if not authenticated
@@ -67,13 +69,16 @@ const OutreachPage = () => {
 
       {/* Header */}
       <header className="bg-card border-b border-border px-6 py-4">
-        <div className="flex items-center space-x-4">
-          <Link href="/" className="text-muted-foreground hover:text-card-foreground">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-lg font-semibold text-card-foreground">
-            Outreach
-          </h1>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <Link href="/" className="text-muted-foreground hover:text-card-foreground">
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <h1 className="text-lg font-semibold text-card-foreground">
+              Outreach
+            </h1>
+          </div>
+          <ConnectionStatus isConnected={isConnected} />
         </div>
       </header>
 

@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { pool } from '@/lib/db';
+import { eventListeners } from '../claim-company/route';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
@@ -62,6 +63,23 @@ export async function POST(request: NextRequest) {
 
       // Commit the transaction
       await client.query('COMMIT');
+
+      // Broadcast the unclaim event to all connected clients
+      const eventData = {
+        type: 'company_unclaimed',
+        company_id: unclaimData.company_id,
+        unclaimed_by_username: decoded.username,
+        company_name: unclaimData.company_name,
+        timestamp: new Date().toISOString()
+      };
+
+      eventListeners.forEach((listener) => {
+        try {
+          listener(eventData);
+        } catch (error) {
+          console.error('Error broadcasting unclaim event:', error);
+        }
+      });
 
       console.log(`User ${decoded.username} unclaimed company: ${unclaimData.company_name}`);
       

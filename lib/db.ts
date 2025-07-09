@@ -21,7 +21,11 @@ export const db = {
   // SQLite-compatible methods for existing code
   run: async (sql: string, params?: any[]) => {
     const result = await pool.query(sql, params);
-    return result;
+    return {
+      ...result,
+      rows: result.rows,
+      rowCount: result.rowCount
+    };
   },
   
   get: async (sql: string, params?: any[]) => {
@@ -118,6 +122,49 @@ async function initTables() {
     `);
 
     // ====== END INVESTOR LIFT PLUGIN TABLES ======
+    
+    // ====== CUSTOMER LISTS TABLES ======
+    
+    // Create customer_lists table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS customer_lists (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT,
+        user_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      )
+    `);
+
+    // Create customer_list_items table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS customer_list_items (
+        id SERIAL PRIMARY KEY,
+        list_id INTEGER NOT NULL,
+        lead_id INTEGER NOT NULL,
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (list_id) REFERENCES customer_lists(id) ON DELETE CASCADE,
+        FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+        UNIQUE(list_id, lead_id)
+      )
+    `);
+
+    // Create indexes for better performance
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_customer_lists_user_id ON customer_lists(user_id)
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_customer_list_items_list_id ON customer_list_items(list_id)
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_customer_list_items_lead_id ON customer_list_items(lead_id)
+    `);
+
+    // ====== END CUSTOMER LISTS TABLES ======
     
     console.log('✅ Database tables initialized');
   } catch (error) {

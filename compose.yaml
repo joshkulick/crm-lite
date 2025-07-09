@@ -8,18 +8,11 @@ services:
     environment:
       - NODE_ENV=production
       - JWT_SECRET=blow-me
-      - DATABASE_PATH=/app/data/database.sqlite
+      - DATABASE_URL=your_postgres_connection_string
       - NEXT_TELEMETRY_DISABLED=1
-    volumes:
-      # Mount a volume for persistent SQLite database storage
-      - crm_data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-volumes:
-  crm_data:
-    driver: local

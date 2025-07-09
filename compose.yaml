@@ -7,8 +7,8 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - JWT_SECRET=blow-me
-      - DATABASE_URL=your_postgres_connection_string
+      - JWT_SECRET=${JWT_SECRET:-blow-me}
+      - DATABASE_URL=${DATABASE_URL}
       - NEXT_TELEMETRY_DISABLED=1
     restart: unless-stopped
     healthcheck:

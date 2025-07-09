@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import jwt from 'jsonwebtoken';
-import { eventListeners } from '../claim-company/route';
+import { eventListeners } from '@/lib/eventSystem';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 

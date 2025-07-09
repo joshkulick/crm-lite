@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { pool } from '@/lib/db';
+import { broadcastClaimEvent } from '@/lib/eventSystem';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
@@ -29,29 +30,6 @@ interface ClaimCompanyRequest {
   point_of_contact?: string;
   preferred_contact_method?: 'call' | 'email' | 'text';
   preferred_contact_value?: string;
-}
-
-// Global event listeners for real-time updates
-const eventListeners = new Map<string, (data: unknown) => void>();
-
-// Function to broadcast claim events to all connected clients
-function broadcastClaimEvent(companyId: number, claimedByUsername: string, companyName: string) {
-  const eventData = {
-    type: 'company_claimed',
-    company_id: companyId,
-    claimed_by_username: claimedByUsername,
-    company_name: companyName,
-    timestamp: new Date().toISOString()
-  };
-
-  // Broadcast to all connected clients
-  eventListeners.forEach((listener) => {
-    try {
-      listener(eventData);
-    } catch (error) {
-      console.error('Error broadcasting to listener:', error);
-    }
-  });
 }
 
 export async function POST(request: NextRequest) {
@@ -225,6 +203,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
-// Export the event system for SSE endpoint
-export { eventListeners, broadcastClaimEvent };

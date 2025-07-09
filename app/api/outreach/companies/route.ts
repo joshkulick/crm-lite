@@ -51,8 +51,8 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // Build search and filter conditions
-    let queryParams: (string | number)[] = [decoded.userId];
-    let whereConditions: string[] = [];
+    const queryParams: (string | number)[] = [decoded.userId];
+    const whereConditions: string[] = [];
     let paramIdx = 2;
 
     // Search condition
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
           paramIdx += 1;
         } else {
           // For non-phone patterns, search all fields including phone numbers
-          let phoneSearchConditions = [];
+          const phoneSearchConditions = [];
           
           if (normalizedSearchTerm.length >= 3) {
             // Exact match for formatted phone number (e.g., "623-288-5625")

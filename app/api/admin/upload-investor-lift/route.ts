@@ -1,13 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
 import { pool } from '@/lib/db';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
-
-interface JWTPayload {
-  userId: number;
-  username: string;
-}
 
 interface PhoneNumber {
   number: string;
@@ -53,9 +45,6 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
-
-    // Verify the JWT token
-    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
 
     // Parse the request body
     const uploadData: UploadData = await request.json();

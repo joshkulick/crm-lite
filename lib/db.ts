@@ -16,10 +16,10 @@ export const pool = new Pool({
 // Create a db object that mimics the SQLite interface for easier migration
 export const db = {
   // For direct queries
-  query: (text: string, params?: any[]) => pool.query(text, params),
+  query: (text: string, params?: unknown[]) => pool.query(text, params),
   
   // SQLite-compatible methods for existing code
-  run: async (sql: string, params?: any[]) => {
+  run: async (sql: string, params?: unknown[]) => {
     const result = await pool.query(sql, params);
     return {
       ...result,
@@ -28,27 +28,27 @@ export const db = {
     };
   },
   
-  get: async (sql: string, params?: any[]) => {
+  get: async (sql: string, params?: unknown[]) => {
     const result = await pool.query(sql, params);
     return result.rows[0];
   },
   
-  all: async (sql: string, params?: any[]) => {
+  all: async (sql: string, params?: unknown[]) => {
     const result = await pool.query(sql, params);
     return result.rows;
   },
 
   // For prepared statements (if needed)
   prepare: (sql: string) => ({
-    run: async (params?: any[]) => {
+    run: async (params?: unknown[]) => {
       const result = await pool.query(sql, params);
       return { lastID: result.rows[0]?.id, changes: result.rowCount };
     },
-    get: async (params?: any[]) => {
+    get: async (params?: unknown[]) => {
       const result = await pool.query(sql, params);
       return result.rows[0];
     },
-    all: async (params?: any[]) => {
+    all: async (params?: unknown[]) => {
       const result = await pool.query(sql, params);
       return result.rows;
     },

@@ -187,7 +187,7 @@ const ListsModal: React.FC<ListsModalProps> = ({
     }
   };
 
-  const isCustomerInList = (listId: number) => {
+  const isCustomerInList = () => {
     return listItems.some(item => item.lead_id === customerId);
   };
 
@@ -273,19 +273,19 @@ const ListsModal: React.FC<ListsModalProps> = ({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (isCustomerInList(list.id)) {
+                              if (isCustomerInList()) {
                                 handleRemoveFromList(list.id);
                               } else {
                                 handleAddToList(list.id);
                               }
                             }}
                             className={`px-2 py-1 text-xs rounded transition-colors ${
-                              isCustomerInList(list.id)
+                              isCustomerInList()
                                 ? 'bg-red-100 text-red-700 hover:bg-red-200'
                                 : 'bg-green-100 text-green-700 hover:bg-green-200'
                             }`}
                           >
-                            {isCustomerInList(list.id) ? 'Remove' : 'Add'}
+                            {isCustomerInList() ? 'Remove' : 'Add'}
                           </button>
                         )}
                         <button

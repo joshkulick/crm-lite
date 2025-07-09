@@ -135,6 +135,7 @@ const CompanyNotesCard: React.FC<CompanyNotesCardProps> = ({
       setEditingContent('');
       loadCompanyNotes();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId, isClaimed, claimedByUsername, currentUsername]);
 
   // Show different content based on claim status

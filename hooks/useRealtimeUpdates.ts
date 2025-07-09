@@ -33,7 +33,7 @@ export const useRealtimeUpdates = ({
   const maxReconnectAttempts = 5;
 
   const connect = useCallback(() => {
-    if (!enabled || eventSourceRef.current) return;
+    if (!enabled || eventSourceRef.current || typeof window === 'undefined') return;
 
     try {
       const eventSource = new EventSource('/api/outreach/realtime');
@@ -118,7 +118,7 @@ export const useRealtimeUpdates = ({
   }, [enabled, connect, disconnect]);
 
   return {
-    isConnected: eventSourceRef.current?.readyState === EventSource.OPEN,
+    isConnected: typeof window !== 'undefined' && eventSourceRef.current?.readyState === EventSource.OPEN,
     connect,
     disconnect
   };
